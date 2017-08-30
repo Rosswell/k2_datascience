@@ -9,7 +9,7 @@ def main(table_choice):
     elif 'rb' in table_choice:
         table_str = 'rbs'
 
-    query = 'SELECT * FROM ' + table_str
+    query = 'SELECT * FROM ' + table_choice
     conn = sqlite3.connect('nfl_db.sqlite')
     c = conn.cursor()
     c.execute(query)
@@ -34,24 +34,29 @@ def main(table_choice):
 
     return df
 
+
 def longest_fix(x):
     if isinstance(x, str):
         return int(x[:-1])
     return x
+
 
 def month_fix(x):
     if x < 3:
         x = 12 + x
     return x - 7
 
+
 def winloss_fix(x):
     return int(x.split(',')[0] == 'W')
+
 
 def score_fix(x):
     win_loss = x.split(',')[0]
     if win_loss == 'W':
         return int(x.split(',')[1].split('-')[0])
     return int(x.split(',')[1].split('-')[1])
+
 
 def sack_fix(series):
     sack_number_list = []
@@ -62,10 +67,11 @@ def sack_fix(series):
         sack_length_list.append(int(sack_length))
     return pd.Series(sack_number_list), pd.Series(sack_length_list)
 
+
 def tar_yac_fix(x):
     if x == '--':
         return 0
     return int(x)
 
 if __name__ == '__main__':
-    main()
+    main('qbs')
