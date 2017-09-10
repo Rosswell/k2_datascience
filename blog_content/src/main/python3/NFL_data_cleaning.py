@@ -37,18 +37,12 @@ from bs4 import BeautifulSoup as BS
 import requests
 import csv
 import sqlite3
-import calendar
-
-
-import pandas as pd
-import sqlite3
-import numpy as np
 import math
 
 
 class dataInitializer():
     def __init__(self):
-        conn = sqlite3.connect('/Users/ross.blanchard/PycharmProjects/k2_datascience/EDA_Project/nfl_db.sqlite')
+        conn = sqlite3.connect('nfl_db.sqlite')
         self.cursor = conn.cursor()
 
     def close_conn(self):
@@ -59,52 +53,6 @@ class dataInitializer():
         conn = sqlite3.connect('nfl_db.sqlite')
         self.cursor = conn.cursor()
         print("DB Connection reopened.")
-
-    def create_prediction_table(self, source_table, destination_table):
-        """
-        Creates a table if it doesn't already exist for training a model. not very dynamic right now
-        :param source_table: source table name, string
-        :param destination_table: prediction table name, string
-        :return: void
-        """
-        source_query = "SELECT * FROM " + source_table
-        self.cursor.execute(source_query)
-        source_df = pd.DataFrame(self.cursor.fetchall())
-        source_df.columns = [desc[0] for desc in self.cursor.description]
-
-        # standard_col_names = ['id'] + ['team_id'] + ['opponent_id']
-        # standard_data_types = [' integer'] +
-
-        source_col_names = ['id'] + list(source_df.columns) + ['season']
-        source_data_types = [' integer '] + [str(source_df[col].dtype).replace('object', ' text ').replace('int64', ' integer ').replace('float64', ' real ') for
-         col in source_df.columns] + [' integer ']
-        col_constraint = ['PRIMARY KEY AUTOINCREMENT NOT NULL, '] + (['NOT NULL, '] * len(source_col_names))
-        column_string = ' ('
-        for col_name, data_type, constraint in zip(source_col_names, source_data_types, col_constraint):
-            column_string += col_name + data_type + constraint
-        foreign_key = 'FOREIGN KEY(team_id) REFERENCES team_map(team_id), FOREIGN KEY(opponent_id) REFERENCES team_map(opponent_id)'
-        destination_query = "CREATE TABLE IF NOT EXISTS " + destination_table + column_string
-        self.cursor.execute(destination_query)
-        print(destination_table + " table created successfully.")
-
-    def fill_prediction_table(self, table):
-        source_query = """select date, result, attempts, completions, percent, yards, yards_per_attempt, touchdowns, 
-                          interceptions, longest_completion, sacks, qb_rating, player_name, team.team_id as team_id, 
-                          opp.team_id 
-                          as opp_id from """ + table + """ join team_map team on team.team=qbs.team
-                          join team_map opp on opp.team=qbs.opponent"""
-        self.cursor.execute(source_query)
-        source_df = pd.DataFrame(self.cursor.fetchall())
-        source_df.columns = [desc[0] for desc in self.cursor.description]
-        source_df = self.convert_cols(source_df, table)
-
-        col_names = list(source_df.columns)
-        source_data_types = [str(source_df[col].dtype) for col in source_df.columns]
-        for d_type in source_data_types:
-            if d_type == 'object':
-                source_df.drop(col_names[source_data_types.index(d_type)], 1, inplace=True)
-        # split the data into data to aggregate and data to drop, add it to the predictions table, and use that for
-        # models
 
     def fetchData(self, position):
         """
@@ -316,18 +264,12 @@ class dataInitializer():
             aggColsAggApplied = np.cumsum(aggColsWithDummyData, axis=0).reset_index(drop=True)
             aggPlayerData = pd.concat([aggColsAggApplied, nonAggCols.reset_index(drop=True)], axis=1,
                              join_axes=[aggColsAggApplied.index]).iloc[:-1]
-            # creating dataframe for the firtst qb, otherwise concatting to existing data
+            # creating dataframe for the first qb, otherwise concatting to existing data
             if name_list.index(name) != 0:
                 trainingData = pd.concat([trainingData, aggPlayerData], axis=0, ignore_index=True)
             else:
                 trainingData = aggPlayerData
-            # trainingData.drop(['team_id2_y', 'team_id2_x'], 1, inplace=True)
         return trainingData
-
-# ndc = dataInitializer()
-# df = ndc.fetchData('qbs')
-# cum_data = ndc.aggregateData(df)
-# print(cum_data.head())
 
 class mlOptimizer():
     def __init__(self, df, y_col, global_random_state=0):
@@ -475,9 +417,6 @@ class mlOptimizer():
 
         index = [v for v in self.data['Model']]
         plotting_df = pd.DataFrame(self.data, index=index).sort_values('Test Score', ascending=False)
-        #         mms = MinMaxScaler()
-        #         plotting_df['Normalized Fit Time'] = mms.fit_transform(plotting_df['Fit Time'].values.reshape(-1, 1))
-        #         plotting_df.drop(['Model', 'Fit Time'], 1, inplace=True)
 
         # plotting the data
         ax = plotting_df[['Test Score', 'Training Score']].plot(figsize=(15, 8),
@@ -592,27 +531,11 @@ class mlOptimizer():
                 homeTeams.append(teamsPlayingOnDate[homeTeamIndex])
                 dates.append(dateList[dateIndex].text)
         # getting starting QBs
-        headerIndex = 0
-        headerList = ['Mozilla/5.0 (compatible; MSIE 8.0; Windows NT 6.0; Trident/4.0; Acoo Browser 1.98.744; .NET CLR 3.5.30729)',
-                'Mozilla/5.0 (compatible; MSIE 8.0; Windows NT 6.0; Trident/4.0; Acoo Browser 1.98.744; .NET CLR 3.5.30729)',
-                'Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.0; Trident/4.0; Acoo Browser; GTB5; Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1) ; InfoPath.1; .NET CLR 3.5.30729; .NET CLR 3.0.30618)',
-                'Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0; SV1; Acoo Browser; .NET CLR 2.0.50727; .NET CLR 3.0.4506.2152; .NET CLR 3.5.30729; Avant Browser)',
-                'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; Acoo Browser; SLCC1; .NET CLR 2.0.50727; Media Center PC 5.0; .NET CLR 3.0.04506)',
-                'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
-                'Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)',
-                'Mozilla/5.0 (X11; CrOS x86_64 8172.45.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.64 Safari/537.36',
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246',
-                'Mozilla/5.0 (Linux; Android 7.0; Pixel C Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/52.0.2743.98 Safari/537.36']
         for awayTeam, homeTeam in zip(awayTeams, homeTeams):
 
             for team in [awayTeam, homeTeam]:
-                headers = {'user-agent': headerList[headerIndex]}
-                headerIndex += 1
-                if headerIndex > len(headers):
-                    headerIndex = 0
                 url = 'http://www.espn.com/nfl/team/depth/_/name/' + team
-                depthChartHtml = requests.get(url, headers=headers)
+                depthChartHtml = requests.get(url)
                 qbSoup = BS(depthChartHtml.content, 'lxml')
                 for tag in qbSoup.find(class_='tablehead').contents:
                     if tag.td.text == 'QB':
@@ -683,19 +606,3 @@ class mlOptimizer():
             predictionDisplayDf[col] = np.where(predictionDisplayDf[col] > 0.5, "Win", "Loss")
         return predictionDisplayDf, plottingDf
 
-# test cases
-ndc = dataInitializer()
-df = ndc.fetchData('qbs')
-df = ndc.cleanData(df, 'qbs')
-cum_data = ndc.aggregateData(df)
-new = mlOptimizer(cum_data, 'win_loss')
-new.optimizeModel('LogisticRegression')
-# new.optimize_model('RandomForestClassifier')
-new.optimizeModel('LDA', True)
-new.optimizeModel('LDA', False)
-# new.optimize_model('AdaBoostClassifier', False)
-newgames = new.fetchGames('1', '2017')
-x_train = cum_data.drop('win_loss', 1)
-y_train = cum_data['win_loss']
-new.predictWeek(newgames, x_train, y_train)
-# print(df.head())
