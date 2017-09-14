@@ -31,18 +31,18 @@ from sklearn.pipeline import Pipeline
 
 # misc
 from collections import OrderedDict
+import seaborn as sns
 
 # web scraping
 from bs4 import BeautifulSoup as BS
 import requests
-import csv
 import sqlite3
 import math
 
 
-class dataInitializer():
+class dataInitializer:
     def __init__(self):
-        conn = sqlite3.connect('nfl_db.sqlite')
+        conn = sqlite3.connect('/Users/ross.blanchard/PycharmProjects/k2_datascience/EDA_Project/nfl_db.sqlite')
         self.cursor = conn.cursor()
 
     def close_conn(self):
@@ -73,14 +73,6 @@ class dataInitializer():
         :param df: dataframe to get the teams from
         :return: a two column dataframe that contains the teams and opponents for each game
         """
-        try:
-            teamSeries = df['team_id']
-            try:
-                opponentSeries = df['opponent_id']
-            except:
-                return "DataFrame does not have an 'opponent_id' column to convert"
-        except:
-            return "DataFrame does not have a 'team_id' column to convert"
 
         teamMapQuery = "SELECT * FROM team_map"
         self.cursor.execute(teamMapQuery)
@@ -101,14 +93,6 @@ class dataInitializer():
         :param df: dataframe to get the teams from
         :return: a two column dataframe that contains the teams and opponents for each game
         """
-        try:
-            teamSeries = df['team_id']
-            try:
-                opponentSeries = df['opponent_id']
-            except:
-                return "DataFrame does not have an 'opponent_id' column to convert"
-        except:
-            return "DataFrame does not have a 'team_id' column to convert"
 
         playerMapQuery = "SELECT * FROM player_map"
         self.cursor.execute(playerMapQuery)
@@ -137,7 +121,8 @@ class dataInitializer():
                 splitStr = x.split(' ')
                 if len(splitStr) > 1:
                     splitStr[1] = splitStr[1].capitalize()
-                else: return splitStr[0].capitalize()
+                else:
+                    return splitStr[0].capitalize()
                 return ' '.join(splitStr)
             # team mapping
             teamMapQuery = "SELECT * FROM team_map"
@@ -146,7 +131,6 @@ class dataInitializer():
             teamMapDf.columns = [desc[0] for desc in self.cursor.description]
             df['team'] = df['team'].apply(lambda x: capitalizeTeams(x))
             df['opponent'] = df['opponent'].apply(lambda x: capitalizeTeams(x))
-
 
             df = df.merge(teamMapDf, on='team', how='left')
 
@@ -263,7 +247,7 @@ class dataInitializer():
             aggColsWithDummyData = pd.concat([aggDummyRow, aggCols], axis=0, ignore_index=True)
             aggColsAggApplied = np.cumsum(aggColsWithDummyData, axis=0).reset_index(drop=True)
             aggPlayerData = pd.concat([aggColsAggApplied, nonAggCols.reset_index(drop=True)], axis=1,
-                             join_axes=[aggColsAggApplied.index]).iloc[:-1]
+                                      join_axes=[aggColsAggApplied.index]).iloc[:-1]
             # creating dataframe for the first qb, otherwise concatting to existing data
             if name_list.index(name) != 0:
                 trainingData = pd.concat([trainingData, aggPlayerData], axis=0, ignore_index=True)
@@ -271,7 +255,8 @@ class dataInitializer():
                 trainingData = aggPlayerData
         return trainingData
 
-class mlOptimizer():
+
+class mlOptimizer:
     def __init__(self, df, y_col, global_random_state=0):
         self.X = df.drop(y_col, 1)
         self.y = df[y_col]
@@ -361,6 +346,10 @@ class mlOptimizer():
             }
         })
 
+    def connectToDb(self):
+        conn = sqlite3.connect('/Users/ross.blanchard/PycharmProjects/k2_datascience/EDA_Project/nfl_db.sqlite')
+        return conn.cursor()
+
     def create_data(self, df, y_col, test_percentage, bootstrap=False):
         """
         Splits a dataframe into x and y columns, and train and test sets
@@ -410,31 +399,40 @@ class mlOptimizer():
                                  ('Best Model Params', [])])
         print("Ranking Cleared.")
 
-    def plot(self):
+    def plotPredictions(self, weekGameData, aggData, weekTitles):
         """
         Creates and displays a plot of the Classification Models' Test and Training Accuracies, as well as Fit Time.
         """
+        x_train = aggData.drop('win_loss', 1)
+        y_train = aggData['win_loss']
+        confidences, predictions = optimizer.predictWeek(weekGameData, x_train, y_train)
+        plottingValues, plottingAnnots = self.combineGames(confidences, predictions)
 
-        index = [v for v in self.data['Model']]
-        plotting_df = pd.DataFrame(self.data, index=index).sort_values('Test Score', ascending=False)
+        plt.figure(figsize=(15, 15))
 
-        # plotting the data
-        ax = plotting_df[['Test Score', 'Training Score']].plot(figsize=(15, 8),
-                                                                fontsize=15, cmap='coolwarm', rot=90)
-        # setting the text value parameters
-        text_x = [-0.20, 0, 0.15]
-        model_num = 0
-        for y_values in plotting_df[['Test Score', 'Training Score']].values:
-            for index, int_val in enumerate(y_values):
-                # y_position = int_val - 0.02
-                # if int_val < 0.1:
-                y_position = int_val + 0.00
-                ax.text(text_x[index] + model_num, y_position, str(round(int_val, 4)), color='black', fontweight='bold',
-                        rotation=90)
-            model_num += 1
+        f, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=(10, 10), gridspec_kw={'height_ratios': [.3, 3, .3]})
+        plotTitle = f.suptitle('NFL Week 2 Game Predictions', fontsize=14)
+        rowStart = 0
+        rowEndList = np.cumsum(weekTitles['iterations'].values)
 
-        plt.title('Classification Model Comparison', size=20)
-        plt.ylabel('Accuracy', size=15)
+        for title, rowEnd, axis in zip(weekTitles['date'].values, rowEndList, [ax1, ax2, ax3]):
+            sns.heatmap(plottingValues.iloc[rowStart:rowEnd],
+                        annot=plottingAnnots.iloc[rowStart:rowEnd],
+                        linewidths=.5, cmap='RdYlGn', cbar=False, fmt="s",
+                        ax=axis, vmin=0.0, vmax=1.0)
+            axis.set_title(title)
+            rowStart = rowEnd
+
+        for ax in [ax1, ax2, ax3]:
+            tl = ax.get_xticklabels()
+            ax.set_xticklabels(tl, rotation=60, size=10)
+            tly = ax.get_yticklabels()
+            ax.set_yticklabels(tly, rotation=0)
+
+        plt.tight_layout()
+        plotTitle.set_y(0.95)
+        plotTitle.set_x(0.55)
+        f.subplots_adjust(top=0.90)
         plt.show()
 
     def optimizeModel(self, model, pca=False):
@@ -455,130 +453,231 @@ class mlOptimizer():
             pipeline_steps.insert(0, ('pca', pca_clf))
             model_params['pca__n_components'] = [3, 4, 5, 6]
         pipe = Pipeline(steps=pipeline_steps)
-        grid = GridSearchCV(pipe, model_params) #, verbose=1)
+        grid = GridSearchCV(pipe, model_params, verbose=1)
         grid.fit(self.X, self.y)
         self.import_model(grid, model_name)
 
-    def fetchGames(self, week, year):
+    def getIds(self, key, c, newPlayerId=None, team=True, away=False):
 
-        playerIdInt = 4000
-        def getIds(key, team=True, away=False, playerIdInt=4000):
-            conn = sqlite3.connect('/Users/ross.blanchard/PycharmProjects/k2_datascience/EDA_Project/nfl_db.sqlite')
-            cursor = conn.cursor()
-            if team:
-                teamStr = key.capitalize()
+        ## NOTE: should just be able to pass all teams/players and return a list of ids instead of this malarky
+        if team:
+            teamStr = key.capitalize()
+            query = "SELECT team_id2 FROM team_map WHERE team='" + teamStr + "'"
+            if away:
+                teamStr = '@ ' + teamStr
                 query = "SELECT team_id2 FROM team_map WHERE team='" + teamStr + "'"
-                if away:
-                    teamStr = '@ ' + teamStr
-                    query = "SELECT team_id2 FROM team_map WHERE team='" + teamStr + "'"
-                cursor.execute(query)
-                team_id = cursor.fetchall()[0][0]
-                conn.close()
-                return team_id
-            if isinstance(key, list):
-                playerStr = [item.lower() for item in key]
-                query = "SELECT player_id FROM player_map WHERE (player_name='" + playerStr[0] + "'" + \
-                        ") OR (player_name='" + playerStr[1] + "')"
-                cursor.execute(query)
-                playerList = [item[0] for item in list(cursor.fetchall())]
-                if len(playerList) < 2:
-                    for nameStr in playerStr:
-                        nameQuery = "SELECT player_id FROM player_map WHERE player_name='" + nameStr + "'"
-                        cursor.execute(nameQuery)
-                        results = list(cursor.fetchall())
-                        if len(results) != 1:
-                            createEntryQuery = "INSERT INTO player_map (player_name, player_id) values(\'{}\',\'{}\')".format(nameStr, playerIdInt)
-                            playerIdInt += 1
-                            cursor.execute(createEntryQuery)
-                cursor.execute(query)
-                playerList = [item[0] for item in list(cursor.fetchall())]
-                conn.close()
-                return playerList
+            c.execute(query)
+            team_id = c.fetchall()[0][0]
+            return team_id
 
-        url = 'http://www.espn.com/nfl/schedule/_/' + 'year/' + year + '/_/' + 'week/' + week
-        csvFilePath = '/Users/ross.blanchard/PycharmProjects/k2_datascience/blog_content/espnWeekData.csv'
-        save = 'n'  # input('save? y/n\n')
-        if save == 'y':
-            page = requests.get(url)
-            soup = BS(page.content, 'html.parser')
-            htmlData = soup.find_all(id="sched-container")
-            with open(csvFilePath, 'w') as csvFile:
-                writer = csv.writer(csvFile)
-                writer.writerow(htmlData)
-        else:
-            with open(csvFilePath, 'r') as csvFile:
-                reader = csv.reader(csvFile)
-                htmlData = list(reader)[0][0]
+        # returning a player_id from a player_name, type checking is probably unnecessary since the other case already returns
+        if isinstance(key, list):
+            playerStr = [item.lower() for item in key]
+            query = "SELECT player_id FROM player_map WHERE (player_name='" + playerStr[0] + "'" + \
+                    ") OR (player_name='" + playerStr[1] + "')"
+            c.execute(query)
+            playerList = [item[0] for item in list(c.fetchall())]
+            if len(playerList) < 2:
+                for nameStr in playerStr:
+                    nameQuery = "SELECT player_id FROM player_map WHERE player_name='" + nameStr + "'"
+                    c.execute(nameQuery)
+                    results = list(c.fetchall())
+                    if len(results) != 1:
+                        createEntryQuery = "INSERT INTO player_map (player_name, player_id) values(\'{}\',\'{}\')".format(
+                            nameStr, newPlayerId)
+                        newPlayerId += 1
+                        c.execute(createEntryQuery)
+            c.execute(query)
+            playerList = [item[0] for item in list(c.fetchall())]
+            return playerList
 
-        # getting game dates and home and away teams for the week
+    def parseDatesAndTeams(self, soup, results):
+
         awayTeams = []
         homeTeams = []
         dates = []
         startingQbs = []
-        soup = BS(htmlData, 'lxml')
-        dateList = soup.find_all(class_="table-caption")
-        teamTableList = soup.find_all(class_='responsive-table-wrap')
-        if len(teamTableList) > len(dateList):
-            teamTableList[-2:-1] = teamTableList[-1:]
-            del teamTableList[-1:]
-        for dateIndex in range(len(dateList)):
-            teamsPlayingOnDate = list(teamTableList[dateIndex].strings)[6:]
-            totalTeamCount = int(len(teamsPlayingOnDate) / 12)
-            for eachTeamIndex in range(totalTeamCount):
-                awayTeamIndex = 2 + (eachTeamIndex * 12)
-                homeTeamIndex = 5 + (eachTeamIndex * 12)
-                awayTeams.append(teamsPlayingOnDate[awayTeamIndex])
-                homeTeams.append(teamsPlayingOnDate[homeTeamIndex])
-                dates.append(dateList[dateIndex].text)
-        # getting starting QBs
-        for awayTeam, homeTeam in zip(awayTeams, homeTeams):
+        teamCountOnDate = []
+        resultsMap = {}
 
-            for team in [awayTeam, homeTeam]:
-                url = 'http://www.espn.com/nfl/team/depth/_/name/' + team
-                depthChartHtml = requests.get(url)
-                qbSoup = BS(depthChartHtml.content, 'lxml')
-                for tag in qbSoup.find(class_='tablehead').contents:
-                    if tag.td.text == 'QB':
-                        startingQbs.append(tag.a.text)
-        returnDict = {
-            'team_id': [],
-            'opponent_id': [],
-            'player_id': [],
+        dateList = soup.find_all(class_="table-caption")
+        teamTables = soup.find_all(class_='responsive-table-wrap')
+
+        # attempting to anticipate bye weeks
+        if len(teamTables) > len(dateList):
+            teamTables[-2:-1] = teamTables[-1:]
+            del teamTables[-1:]
+
+        # getting home and away teams, sorted by order of appearance
+        for dateIndex in range(len(dateList)):
+            teamList = teamTables[dateIndex].find_all(class_="team-name")
+            teamCountOnDate.append(int(len(teamList) / 2))
+            dates.append(dateList[dateIndex].text)
+
+            for table in teamList:
+                if teamList.index(table) % 2 == 0:
+                    homeTeams.append(table.abbr.string)
+                else:
+                    awayTeams.append(table.abbr.string)
+
+        # parses and returns starting QBs if looking for future games, and results if looking for past games
+        if results:
+            for awayTeam, homeTeam in zip(awayTeams, homeTeams):
+                for team in [awayTeam, homeTeam]:
+                    url = 'http://www.espn.com/nfl/team/depth/_/name/' + team
+                    depthChartHtml = requests.get(url)
+                    qbSoup = BS(depthChartHtml.content, 'lxml')
+                    for tag in qbSoup.find(class_='tablehead').contents:
+                        if tag.td.text == 'QB':
+                            startingQbs.append(tag.a.text)
+            return [awayTeams, teamCountOnDate, homeTeams, dates, startingQbs]
+
+        else:
+            for table in teamTables:
+                gameResults = table.find_all(class_='home')
+                for game in gameResults:
+                    gameResultStrings = game.nextSibling.string.replace(',', '').split(' ')
+                    resultsMap[gameResultStrings[0]] = gameResults[1]
+            return [awayTeams, teamCountOnDate, homeTeams, dates, resultsMap]
+
+    def fetchFutureGames(self, week, year):
+
+        # this dict is for the teams and the QBs playing
+        returnDataDict = {
+            'awayTeamId': [],
+            'homeTeamId': [],
+            'homePlayerId': [],
+            'awayPlayerId': [],
             'season': [],
             'week': []
         }
-        for gameIndex in range(len(awayTeams)):
-            team_id = getIds(awayTeams[gameIndex], True, False, playerIdInt)
-            opponent_id = getIds(homeTeams[gameIndex], True, True, playerIdInt)
-            player_id1, player_id2 = getIds([startingQbs[gameIndex * 2], startingQbs[gameIndex * 2 + 1]], False,
-                                            False, playerIdInt)
-            playerIdInt += 2
-            returnDict['team_id'].extend([team_id, opponent_id])
-            returnDict['opponent_id'].extend([opponent_id, team_id])
-            returnDict['player_id'].extend([player_id1, player_id2])
-            returnDict['season'].extend([year] * 2)
-            returnDict['week'].extend([week] * 2)
-        return pd.DataFrame(returnDict, index=list(range(len(returnDict['team_id']))))
 
-    def predictWeek(self, knownPredictionValsDf, trainingDfX, trainingDfY):
+        # this dict is for the date titles for future plot visualization
+        returnTitleDict = {
+            'date': [],
+            'iterations': []
+        }
+
+        url = 'http://www.espn.com/nfl/schedule/_/' + 'year/' + year + '/week/' + week
+        page = requests.get(url)
+        soup = BS(page.content, 'html.parser')
+
+        # getting game dates and home and away teams for the week
+        awayTeams, teamCountOnDate, homeTeams, dates, startingQbs = self.parseDatesAndTeams(soup, True)
+
+        c = self.connectToDb()
+        c.execute("SELECT MAX(player_id) from player_map")
+        newPlayerId = c.fetchall()[0][0]
+        for gameIndex in range(len(awayTeams)):
+            # getting the ids of players and teams
+            awayTeamId = self.getIds(awayTeams[gameIndex], c, newPlayerId, team=True, away=False)
+            homeTeamId = self.getIds(homeTeams[gameIndex], c, newPlayerId, team=True, away=True)
+            startingQbList = [startingQbs[gameIndex * 2], startingQbs[gameIndex * 2 + 1]]
+            awayPlayerId, homePlayerId = self.getIds(startingQbList, c, newPlayerId, team=False, away=False)
+
+            # filling the map with game data
+            returnDataDict['awayTeamId'].append(awayTeamId)
+            returnDataDict['homeTeamId'].append(homeTeamId)
+            returnDataDict['homePlayerId'].append(homePlayerId)
+            returnDataDict['awayPlayerId'].append(awayPlayerId)
+            returnDataDict['season'].append(year)
+            returnDataDict['week'].append(week)
+            newPlayerId += 1
+
+        # filling the title map with dates and number of teams playing on the date
+        returnTitleDict['date'] = dates
+        returnTitleDict['iterations'] = teamCountOnDate
+
+        return [pd.DataFrame(returnDataDict, index=list(range(len(returnDataDict['awayTeamId'])))),
+                pd.DataFrame(returnTitleDict, index=list(range(len(returnTitleDict['date']))))]
+
+    def fetchGameResults(self, week, year):
+
+        # this dict is for the teams and the results
+        returnDataDict = {
+            'awayTeamId': [],
+            'homeTeamId': [],
+            'homeScore': [],
+            'awayScore': [],
+            'season': [],
+            'week': []
+        }
+
+        # this dict is for the date titles for future plot visualization
+        returnTitleDict = {
+            'date': [],
+            'iterations': []
+        }
+
+        url = 'http://www.espn.com/nfl/schedule/_/' + 'year/' + year + '/week/' + week
+        page = requests.get(url)
+        soup = BS(page.content, 'html.parser')
+
+        awayTeams, teamCountOnDate, homeTeams, dates, resultsMap = self.parseDatesAndTeams(soup, True)
+
+        c = self.connectToDb()
+        for gameIndex in range(len(awayTeams)):
+            # getting the ids of teams
+            awayTeamId = self.getIds(awayTeams[gameIndex], c, team=False, away=False)
+            homeTeamId = self.getIds(homeTeams[gameIndex], c, team=True, away=True)
+
+            # filling the map with game data
+            returnDataDict['homeScore'].extend(resultsMap[homeTeams[gameIndex]])
+            returnDataDict['awayScore'].extend(resultsMap[awayTeams[gameIndex]])
+            returnDataDict['awayTeamId'].append(awayTeamId)
+            returnDataDict['homeTeamId'].append(homeTeamId)
+            returnDataDict['season'].append(year)
+            returnDataDict['week'].append(week)
+
+        # filling the title map with dates and number of teams playing on the date
+        returnTitleDict['date'] = dates
+        returnTitleDict['iterations'] = teamCountOnDate
+
+        return [pd.DataFrame(returnDataDict, index=list(range(len(returnDataDict['awayTeamId'])))),
+                pd.DataFrame(returnTitleDict, index=list(range(len(returnTitleDict['date']))))]
+
+    def predictWeek(self, fetchedGameData, trainingDfX, trainingDfY):
+        """
+        Uses the top 5 prediction models to create dataframes of win/loss predictions and confidence scores
+        :param fetchedGameData:
+        :param trainingDfX:
+        :param trainingDfY:
+        :return:
+        """
+
+        totalPlayerIds = list(np.append(fetchedGameData['homePlayerId'].values, fetchedGameData['awayPlayerId'].values))
+        totalTeamIds = list(np.append(fetchedGameData['homeTeamId'].values, fetchedGameData['awayTeamId'].values))
         predictionData = pd.DataFrame(columns=list(trainingDfX.columns))
-        for playerId in knownPredictionValsDf['player_id'].values:
+
+        # Aggregate data sorting for the QBs starting on the week
+        for playerId in np.append(fetchedGameData['homePlayerId'].values, fetchedGameData['awayPlayerId'].values):
             if int(playerId) in trainingDfX['player_id']:
                 predictionData = predictionData.append(trainingDfX[trainingDfX['player_id'] == int(playerId)].sort_values(['season', 'week']).iloc[-1:])
             else:
-                predictionData = predictionData.append(pd.DataFrame(np.zeros((1,len(trainingDfX.columns))), columns=list(trainingDfX.columns)))
-        knownPredictionValsDf.index = predictionData.index
-        predictionData.drop(list(knownPredictionValsDf.columns), 1, inplace=True)
-        for col in list(knownPredictionValsDf.columns):
-            predictionData[col] = knownPredictionValsDf[col]
-        # predictionData.drop('win_loss', 1, inplace=True)
+                predictionData = predictionData.append(pd.DataFrame(np.zeros((1, len(trainingDfX.columns))), columns=list(trainingDfX.columns)))
+
+        # resetting the index and replacing the incorrect opponent ids with the right ones
+        predictionData.index = list(range(0, 32))
+        predictionData.drop('opponent_id', 1, inplace=True)
+        opponentIdFiller = []
+        for playerId in totalPlayerIds:
+            if totalPlayerIds.index(playerId) < (len(totalPlayerIds) / 2):
+                gameRow = fetchedGameData[fetchedGameData['homePlayerId'] == playerId]
+                opponentIdFiller.append(gameRow['homeTeamId'].values[0])
+            else:
+                gameRow = fetchedGameData[fetchedGameData['awayPlayerId'] == playerId]
+                opponentIdFiller.append(gameRow['awayTeamId'].values[0])
+        predictionData['opponent_id'] = opponentIdFiller
 
         models = self.view()['Best Model Instance'][:5]
         modelNames = self.view()['Model'][:5]
+
+        ## NOTE: should just have a map stored so we don't have to make all these queries all the time
+        # gets the team abbreviations for the graph
         conn = sqlite3.connect('/Users/ross.blanchard/PycharmProjects/k2_datascience/EDA_Project/nfl_db.sqlite')
         cursor = conn.cursor()
         teamPrintList = []
-        for teamId in predictionData['team_id'].values:
+        for teamId in totalTeamIds:
             query = "select team from team_map where team_id='{}'".format(teamId)
             cursor.execute(query)
             team = cursor.fetchall()[0][0]
@@ -587,22 +686,102 @@ class mlOptimizer():
             else:
                 teamPrintList.append(team.upper())
         conn.close()
-        predictionDisplayDf = pd.DataFrame(index = teamPrintList)
+
+        # predicting the games and their associated confidence scores
+        confidencesDf = pd.DataFrame(index=teamPrintList)
+        predictionsDf = pd.DataFrame(index=teamPrintList)
         for model, modelName in zip(models, modelNames):
             if isinstance(model, list):
                 pipe = Pipeline(model[0], model[1])
                 pipe.fit(trainingDfX, trainingDfY)
-                prediction = pipe.predict(predictionData)
+                predictions = pipe.predict(predictionData)
+                confidences = list(pipe.predict_proba(predictionData))
             else:
                 clf = model
                 clf.fit(trainingDfX, trainingDfY)
-                prediction = clf.predict(predictionData)
+                predictions = clf.predict(predictionData)
+                confidences = list(clf.predict_proba(predictionData))
 
-            tempSeries = pd.Series(prediction, index=teamPrintList, name=modelName)
-            predictionDisplayDf = pd.concat([predictionDisplayDf, tempSeries], axis=1)
-        predictionDisplayDf['Aggregate Prediction'] = predictionDisplayDf.mean(axis=1)
-        plottingDf = predictionDisplayDf.copy()
-        for col in predictionDisplayDf.columns:
-            predictionDisplayDf[col] = np.where(predictionDisplayDf[col] > 0.5, "Win", "Loss")
-        return predictionDisplayDf, plottingDf
+            confidenceOfPrediction = []
+            for pred, conf in zip(predictions, confidences):
+                if pred == 0:
+                    confidenceOfPrediction.append(conf[0])
+                else:
+                    confidenceOfPrediction.append(conf[1])
 
+            confidencesDf = pd.concat([confidencesDf, pd.Series(confidenceOfPrediction, index=teamPrintList, name=modelName).rename(modelName)],
+                                      axis=1)
+            predictionsDf = pd.concat([predictionsDf, pd.Series(predictions, index=teamPrintList, name=modelName)],
+                                      axis=1)
+        predictionsDf['Aggregate Prediction'] = predictionsDf.mean(axis=1)
+        confidencesDf['Aggregate Prediction'] = confidencesDf.mean(axis=1)
+
+        return confidencesDf, predictionsDf
+
+    def combineGames(self, confidenceDf, predictionDf):
+
+        # creating the combined maps
+        confidenceMap = OrderedDict([(key, []) for key in confidenceDf.columns])
+        plottingLabelsMap = OrderedDict([(key, []) for key in confidenceDf.columns])
+        # creating the combined teams index
+        index = list(confidenceDf.index)
+        combinedTeamIndex = [homeTeam + ' vs. ' + awayTeam for homeTeam, awayTeam in zip(index[::2], index[1::2])]
+        cols = list(confidenceDf.columns)
+
+        for colIndex in range(len(confidenceDf.columns)):
+            for gameIndexStart in range(0, len(confidenceDf), 2):
+                homeRowIndex = gameIndexStart
+                awayRowIndex = gameIndexStart + 1
+                homeConfidence = confidenceDf.iloc[homeRowIndex: homeRowIndex+1, colIndex].values[0]
+                awayConfidence = confidenceDf.iloc[awayRowIndex: awayRowIndex+1, colIndex].values[0]
+                homePrediction = predictionDf.iloc[homeRowIndex: homeRowIndex+1, colIndex].values[0]
+                awayPrediction = predictionDf.iloc[awayRowIndex: awayRowIndex+1, colIndex].values[0]
+                maxConf = max(homeConfidence, awayConfidence)
+                minConf = min(homeConfidence, awayConfidence)
+                # getting the total Confidence in the game call by assessing whether the predictions agree or not
+                if homePrediction == awayPrediction:
+                    totalConfidence = maxConf * (1 - minConf)
+                else:
+                    totalConfidence = maxConf * minConf
+                confidenceMap[cols[colIndex]].append(totalConfidence)
+                # writes the home team to the label map if it has the higher confidence, otherwise write the away team
+                if maxConf == homeConfidence:
+                    plottingLabelsMap[cols[colIndex]].append(index[gameIndexStart] +
+                                                             '\nConfidence: ' + str(round(totalConfidence, 2)))
+                else:
+                    plottingLabelsMap[cols[colIndex]].append(index[gameIndexStart + 1] +
+                                                             '\nConfidence: ' + str(round(totalConfidence, 2)))
+
+        return [pd.DataFrame(confidenceMap, index=combinedTeamIndex),
+                pd.DataFrame(plottingLabelsMap, index=combinedTeamIndex)]
+
+
+""" Tests """
+
+dataConnection = dataInitializer()
+qbDf = dataConnection.fetchData('qbs')
+qbDf = dataConnection.cleanData(qbDf, 'qbs')
+aggQbData = dataConnection.aggregateData(qbDf)
+optimizer = mlOptimizer(aggQbData, 'win_loss')
+
+optimizer.optimizeModel('LogisticRegression', pca=False)
+optimizer.optimizeModel('LogisticRegression', pca=True)
+optimizer.optimizeModel('LDA', pca=True)
+optimizer.optimizeModel('LDA', pca=False)
+optimizer.optimizeModel('QDA', pca=True)
+optimizer.optimizeModel('QDA', pca=False)
+optimizer.optimizeModel('GaussianNB', pca=False)
+optimizer.optimizeModel('GaussianNB', pca=True)
+# optimizer.optimizeModel('MultinomialNB', pca=False)
+optimizer.optimizeModel('DecisionTreeClassifier', pca=False)
+optimizer.optimizeModel('DecisionTreeClassifier', pca=True)
+optimizer.optimizeModel('SVC', pca=False)
+optimizer.optimizeModel('SVC', pca=True)
+optimizer.optimizeModel('KNeighborsClassifier', pca=False)
+optimizer.optimizeModel('KNeighborsClassifier', pca=True)
+optimizer.optimizeModel('RandomForest', pca=False)
+optimizer.optimizeModel('GradientBoostingClassifier', pca=False)
+optimizer.optimizeModel('AdaBoostClassifier', pca=False)
+weeklyGameData, weeklyGamePlotTitles = optimizer.fetchFutureGames('2', '2017')
+# optimizer.fetchGameResults('1', '2017')
+optimizer.plotPredictions(weeklyGameData, aggQbData, weeklyGamePlotTitles)
